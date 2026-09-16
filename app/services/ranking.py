@@ -82,7 +82,8 @@ async def _declaration_stats(
         )
         entry["days"].add(decl_date)
         entry["total_items"] += 1
-        # item_status() 와 같은 판정을 컬럼 값만으로 되풀이한다 (행을 통째로 들고 오지 않기 위해).
+        # declarations.done_in_sql() 과 같은 조건을 파이썬에서 되풀이한 것이다.
+        # 행을 통째로 들고 오지 않으려고 컬럼만 받아 왔다. 한쪽을 고치면 다른 쪽도 고친다.
         done = (
             todo_id is not None
             and deleted_at is None

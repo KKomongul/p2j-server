@@ -7,7 +7,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, ValidationInfo, field_validator
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # HS256 은 32바이트 이상을 권장한다(RFC 7518). 운영에서는 반드시 교체한다.
@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     # 운영에서 허용할 origin 을 콤마로 구분. 개발·테스트에서는 항상 열려 있다.
     cors_origins: str = ""
 
+    # --- 스토리지 (§6.3) ---
+    # local  : 이 서버가 STORAGE_DIR 아래에 받아 둔다. 설정이 필요 없다.
+    # firebase: 서명 URL 로 클라이언트가 버킷에 직접 올린다 (명세의 원안).
+    #           FIREBASE_CREDENTIALS_PATH · FIREBASE_STORAGE_BUCKET 이 둘 다 있어야 한다.
+    storage_driver: Literal["local", "firebase"] = "local"
+    storage_dir: str = "var/uploads"
+
     # --- 외부 서비스 (해당 기능 구현 시 필수로 승격) ---
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
@@ -64,6 +71,19 @@ class Settings(BaseSettings):
         if info.data.get("app_env") == "production" and (not value or value == DEV_JWT_SECRET):
             raise ValueError("운영 환경에서는 JWT_SECRET 을 반드시 설정해야 합니다.")
         return value
+
+    @model_validator(mode="after")
+    def _firebase_needs_credentials(self) -> "Settings":
+        # 부팅 때 걸러 낸다. 사진을 올리려는 순간에야 503 을 보는 것보다 낫다.
+        # field_validator 로는 안 된다 — 선언 순서상 firebase_* 가 아직 안 채워져 있다.
+        if self.storage_driver == "firebase" and not (
+            self.firebase_credentials_path and self.firebase_storage_bucket
+        ):
+            raise ValueError(
+                "STORAGE_DRIVER=firebase 이면 FIREBASE_CREDENTIALS_PATH 와 "
+                "FIREBASE_STORAGE_BUCKET 을 설정해야 합니다."
+            )
+        return self
 
     @property
     def is_production(self) -> bool:

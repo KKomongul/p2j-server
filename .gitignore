@@ -35,3 +35,7 @@ experiments/**/.ipynb_checkpoints/
 
 # 로컬 SQLite 개발 DB (Docker 없을 때 임시)
 *.sqlite3
+
+# local 스토리지 드라이버가 받아 두는 사진
+var/
+*.db

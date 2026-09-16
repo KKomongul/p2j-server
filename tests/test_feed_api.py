@@ -70,8 +70,9 @@ async def test_proof_requires_a_completed_item(
     assert post["caption"] == "헬스장 다녀옴"
     assert post["file_key"] == FILE_KEY
     assert post["comment_count"] == 0 and post["reactions"] == {}
-    # 버킷이 설정되지 않은 환경에서는 null. file_key 는 언제나 함께 내려간다.
-    assert post["image_url"] is None
+    # local 드라이버는 상대 경로를 준다. 모바일이 API base URL 에 이어 붙인다.
+    assert post["image_url"] == f"/files/{FILE_KEY}"
+    assert post["file_key"] == FILE_KEY  # 키는 드라이버와 무관하게 언제나 온다
 
 
 async def test_proof_is_one_per_item_and_owner_only(
@@ -306,17 +307,21 @@ async def test_unknown_post_is_404(client: AsyncClient, auth_headers: dict[str, 
 # ---- presign ----------------------------------------------------------------------
 
 
-async def test_presign_is_503_without_storage_credentials(
+async def test_presign_works_out_of_the_box(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:
-    """자격증명이 없으면 이 엔드포인트만 막힌다. 서버는 정상이다."""
+    """기본 드라이버(local)는 설정 없이 바로 동작한다.
+
+    Firebase 로 바꾸려면 STORAGE_DRIVER=firebase + 자격증명이 필요하고,
+    그 경우의 동작은 tests/test_uploads_api.py 가 덮는다.
+    """
     r = await client.post(
         "/v1/uploads/presign",
         json={"content_type": "image/jpeg", "purpose": "proof"},
         headers=auth_headers,
     )
-    assert r.status_code == 503
-    assert r.json()["error"]["code"] == "STORAGE_UNAVAILABLE"
+    assert r.status_code == 200
+    assert r.json()["data"]["file_key"].endswith(".jpg")
 
 
 async def test_presign_rejects_unsupported_type(

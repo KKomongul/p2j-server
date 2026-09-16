@@ -23,6 +23,7 @@ from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.errors import AppError, FieldValidationError
 from app.core.time import now_utc, service_today, to_kst_iso
@@ -46,6 +47,22 @@ def item_status(item: DeclarationItem, todo: Todo | None, declared_on: date) -> 
     if todo.date != declared_on:
         return "deferred"  # 선언한 날에서 벗어났다
     return todo.status
+
+
+def done_in_sql() -> ColumnElement[bool]:
+    """`item_status(...) == "done"` 을 SQL 로 옮긴 것.
+
+    파이썬 판정(item_status)과 집계 쿼리가 따로 놀면 같은 앱의 두 화면이
+    다른 숫자를 말한다. 실제로 그랬다 — 선언한 할 일을 다음 날로 미뤄서 끝내면
+    구성원 목록은 100%, 선언 현황은 0% 였다. 정의를 한 군데로 모은다.
+
+    `Declaration` 과 `Todo` 가 모두 FROM 에 있는 쿼리에서만 쓴다.
+    """
+    return (
+        Todo.deleted_at.is_(None)
+        & (Todo.date == Declaration.date)  # 미룬 항목은 그날 것이 아니다
+        & (Todo.status == "done")
+    )
 
 
 def item_to_dict(

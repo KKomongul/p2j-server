@@ -145,8 +145,11 @@ async def group_to_dict(
     member: GroupMember | None = None,
     *,
     with_activity: bool = False,
+    with_invite: bool = True,
 ) -> dict[str, Any]:
-    invite = await _active_invite(db, group.group_id)
+    """[with_invite] 는 목록에서 끈다. 카드에 초대 코드를 보여 주지 않는데
+    그룹마다 한 번씩 더 조회하면 목록이 그룹 수만큼 느려진다."""
+    invite = await _active_invite(db, group.group_id) if with_invite else None
     data: dict[str, Any] = {
         "group_id": group.group_id,
         "name": group.name,
@@ -228,7 +231,8 @@ async def list_my_groups(db: AsyncSession, user: User) -> list[dict[str, Any]]:
         )
     ).all()
     return [
-        await group_to_dict(db, group, member, with_activity=True) for group, member in rows
+        await group_to_dict(db, group, member, with_activity=True, with_invite=False)
+        for group, member in rows
     ]
 
 
@@ -358,13 +362,19 @@ async def list_members(db: AsyncSession, group_id: int, day: date | None = None)
 async def declared_rates(
     db: AsyncSession, group_id: int, user_ids: list[int], day: date
 ) -> dict[int, float]:
-    """선언한 사람별 {user_id: 달성률}. 선언하지 않은 사람은 키 자체가 없다."""
+    """선언한 사람별 {user_id: 달성률}. 선언하지 않은 사람은 키 자체가 없다.
+
+    완료 판정은 `declarations.done_in_sql()` 하나만 쓴다. 여기서 `status == "done"`
+    만 보면 미뤘다가 다음 날 끝낸 항목이 오늘 달성으로 잡혀 선언 현황 화면과 어긋난다.
+    """
+    from app.services.declarations import done_in_sql  # 순환 import 회피
+
     rows = (
         await db.execute(
             select(
                 Declaration.user_id,
                 func.count(DeclarationItem.declaration_item_id),
-                func.count(DeclarationItem.declaration_item_id).filter(Todo.status == "done"),
+                func.count(DeclarationItem.declaration_item_id).filter(done_in_sql()),
             )
             .join(
                 DeclarationItem,

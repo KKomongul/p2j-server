@@ -495,3 +495,38 @@ async def test_todo_declared_to_two_groups_lists_both(
     assert {link["group_name"] for link in links} == {"러닝조", "개발조"}
     # 선언 항목 id 는 그룹마다 다르다. 사진은 각각에 따로 붙는다.
     assert len({link["declaration_item_id"] for link in links}) == 2
+async def test_member_rate_matches_declaration_status(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """미뤘다가 다음 날 끝낸 항목이 오늘 달성으로 잡히면 안 된다.
+
+    구성원 목록과 선언 현황이 다른 숫자를 말하던 회귀. 완료 판정이 두 벌이었다.
+    """
+    group = await _create_group(client, auth_headers)
+    todo_id = await _add_todo(client, auth_headers, "논문 읽기")
+    await client.post(
+        f"/v1/groups/{group['group_id']}/declarations",
+        json={"todo_ids": [todo_id]},
+        headers=auth_headers,
+    )
+
+    # 선언한 뒤 내일로 미루고 거기서 끝낸다.
+    tomorrow = (service_today() + timedelta(days=1)).isoformat()
+    moved = await client.post(
+        f"/v1/todos/{todo_id}/postpone",
+        json={"to_date": tomorrow},
+        headers=auth_headers,
+    )
+    assert moved.status_code == 200, moved.text
+    await client.post(f"/v1/todos/{todo_id}/complete", json={}, headers=auth_headers)
+
+    gid = group["group_id"]
+    members = (await client.get(f"/v1/groups/{gid}/members", headers=auth_headers)).json()
+    rows = (await client.get(f"/v1/groups/{gid}/declarations", headers=auth_headers)).json()
+    ranking = (await client.get(f"/v1/groups/{gid}/ranking", headers=auth_headers)).json()
+
+    # 셋 다 "오늘은 못 했다" 로 말해야 한다.
+    assert rows["data"][0]["items"][0]["status"] == "deferred"
+    assert rows["data"][0]["achievement_rate"] == 0.0
+    assert members["data"][0]["today_achievement_rate"] == 0.0
+    assert ranking["data"]["rankings"][0]["achievement_rate"] == 0.0

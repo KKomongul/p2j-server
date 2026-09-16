@@ -68,7 +68,18 @@ class TodoPostponeRequest(BaseModel):
 # ---- 응답 -------------------------------------------------------------------------
 
 
-def todo_to_dict(todo: Todo) -> dict[str, Any]:
+def todo_to_dict(
+    todo: Todo,
+    *,
+    declarations: list[dict[str, Any]] | None = None,
+    proof: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """TodoItem 한 건 (명세 §5).
+
+    `declarations` 는 이 할 일이 걸려 있는 그룹 목록이다. 오늘 화면에서 인증샷을
+    올릴 때 **어느 선언 항목으로 보낼지**를 알아야 해서 함께 내려보낸다.
+    여러 그룹에 선언했으면 항목도 그만큼 있고, 사진 한 장이 전부에 붙는다.
+    """
     goal: Goal | None = todo.goal
     return {
         "todo_id": todo.todo_id,
@@ -84,7 +95,8 @@ def todo_to_dict(todo: Todo) -> dict[str, Any]:
         "order": todo.display_order,
         "is_declared": todo.is_declared,
         "postpone_count": todo.postpone_count,
-        "proof": None,  # 12주차 proofs 구현 시 채운다
+        "declarations": declarations or [],
+        "proof": proof,
         "memo": todo.memo,
     }
 

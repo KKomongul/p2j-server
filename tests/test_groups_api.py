@@ -432,3 +432,66 @@ async def test_todos_day_view_carries_declaration(
 async def test_groups_require_auth(client: AsyncClient) -> None:
     assert (await client.get("/v1/groups")).status_code == 401
     assert (await client.post("/v1/groups", json={"name": "x"})).status_code == 401
+async def test_todo_carries_declaration_links_and_proof(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """오늘 화면이 인증샷을 어디로 보낼지 알려면 할 일에 선언 항목이 실려야 한다."""
+    group = await _create_group(client, auth_headers)
+    todo_id = await _add_todo(client, auth_headers, "3km 달리기")
+
+    before = (await client.get("/v1/todos", headers=auth_headers)).json()["data"]
+    assert before["items"][0]["declarations"] == []
+    assert before["items"][0]["proof"] is None
+
+    await client.post(
+        f"/v1/groups/{group['group_id']}/declarations",
+        json={"todo_ids": [todo_id]},
+        headers=auth_headers,
+    )
+
+    after = (await client.get("/v1/todos", headers=auth_headers)).json()["data"]
+    link = after["items"][0]["declarations"][0]
+    assert link["group_id"] == group["group_id"]
+    assert link["group_name"] == "3학년 개발조"
+    assert link["has_proof"] is False
+    assert link["declaration_item_id"] > 0
+
+    await client.post(f"/v1/todos/{todo_id}/complete", json={}, headers=auth_headers)
+    await client.post(
+        f"/v1/groups/{group['group_id']}/proofs",
+        json={
+            "declaration_item_id": link["declaration_item_id"],
+            "file_key": "proofs/2026/09/16/run.jpg",
+            "caption": "3km 완주",
+        },
+        headers=auth_headers,
+    )
+
+    proven = (await client.get("/v1/todos", headers=auth_headers)).json()["data"]
+    item = proven["items"][0]
+    assert item["proof"]["caption"] == "3km 완주"
+    assert item["declarations"][0]["has_proof"] is True
+
+
+async def test_todo_declared_to_two_groups_lists_both(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """한 할 일을 두 그룹에 걸면 사진 한 장이 양쪽에 붙어야 한다."""
+    first = await _create_group(client, auth_headers, name="러닝조")
+    second = await _create_group(client, auth_headers, name="개발조")
+    todo_id = await _add_todo(client, auth_headers, "3km 달리기")
+
+    for group in (first, second):
+        r = await client.post(
+            f"/v1/groups/{group['group_id']}/declarations",
+            json={"todo_ids": [todo_id]},
+            headers=auth_headers,
+        )
+        assert r.status_code == 201, r.text
+
+    data = (await client.get("/v1/todos", headers=auth_headers)).json()["data"]
+    links = data["items"][0]["declarations"]
+    assert len(links) == 2
+    assert {link["group_name"] for link in links} == {"러닝조", "개발조"}
+    # 선언 항목 id 는 그룹마다 다르다. 사진은 각각에 따로 붙는다.
+    assert len({link["declaration_item_id"] for link in links}) == 2

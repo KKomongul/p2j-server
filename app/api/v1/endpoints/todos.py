@@ -15,7 +15,6 @@ from app.schemas.todo import (
     TodoCreateRequest,
     TodoPostponeRequest,
     TodoUpdateRequest,
-    todo_to_dict,
 )
 from app.services import todos as svc
 
@@ -41,25 +40,30 @@ async def week(
 
 @router.post("", status_code=201, summary="단건 생성")
 async def create(user: CurrentUser, db: DbSession, body: TodoCreateRequest) -> dict[str, Any]:
-    return ok(todo_to_dict(await svc.create_todo(db, user, body)))
+    return ok(await svc.serialize(db, await svc.create_todo(db, user, body)))
 
 
 @router.post("/bulk", status_code=201, summary="AI 미리보기 확정 저장 (전체 성공 또는 전체 롤백)")
 async def create_bulk(user: CurrentUser, db: DbSession, body: TodoBulkRequest) -> dict[str, Any]:
     todos = await svc.create_bulk(db, user, body)
-    return ok({"items": [todo_to_dict(t) for t in todos], "created_count": len(todos)})
+    return ok(
+        {
+            "items": await svc.serialize_many(db, todos),
+            "created_count": len(todos),
+        }
+    )
 
 
 @router.get("/{todo_id}", summary="상세")
 async def get_one(user: CurrentUser, db: DbSession, todo_id: int) -> dict[str, Any]:
-    return ok(todo_to_dict(await svc.get_owned_todo(db, user, todo_id)))
+    return ok(await svc.serialize(db, await svc.get_owned_todo(db, user, todo_id)))
 
 
 @router.patch("/{todo_id}", summary="부분 수정")
 async def update(
     user: CurrentUser, db: DbSession, todo_id: int, body: TodoUpdateRequest
 ) -> dict[str, Any]:
-    return ok(todo_to_dict(await svc.update_todo(db, user, todo_id, body)))
+    return ok(await svc.serialize(db, await svc.update_todo(db, user, todo_id, body)))
 
 
 @router.delete("/{todo_id}", status_code=204, summary="soft delete")
@@ -92,5 +96,7 @@ async def postpone(
     body: TodoPostponeRequest | None = None,
 ) -> dict[str, Any]:
     return ok(
-        todo_to_dict(await svc.postpone_todo(db, user, todo_id, body or TodoPostponeRequest()))
+        await svc.serialize(
+            db, await svc.postpone_todo(db, user, todo_id, body or TodoPostponeRequest())
+        )
     )

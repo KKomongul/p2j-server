@@ -63,7 +63,7 @@ async def list_day(db: AsyncSession, user: User, day: date | None) -> dict[str, 
     todos = list(rows)
     return {
         "date": target.isoformat(),
-        "items": [todo_to_dict(t) for t in todos],
+        "items": await serialize_many(db, todos),
         "summary": summary_dict(todos),
         # 그날 내가 어느 그룹에 뭘 선언했는지. 선언이 없으면 null (§6.2).
         "declaration": await declaration_summary(db, user, target),
@@ -109,6 +109,86 @@ async def week_strip(db: AsyncSession, user: User, start: date | None) -> list[d
             }
         )
     return out
+
+
+# ---- 선언 링크 -------------------------------------------------------------------------
+
+
+async def declaration_links(
+    db: AsyncSession, todo_ids: list[int]
+) -> tuple[dict[int, list[dict[str, Any]]], dict[int, dict[str, Any]]]:
+    """({todo_id: 선언 목록}, {todo_id: 인증샷}).
+
+    오늘 화면이 인증샷을 올리려면 **어느 선언 항목으로 보낼지**를 알아야 한다.
+    할 일 하나가 여러 그룹에 걸릴 수 있으므로 목록이다. 사진 한 장을 올리면
+    걸려 있는 모든 항목에 붙는다.
+
+    쿼리 한 번으로 끝낸다. 하루 목록이 20건이어도 N+1 이 나지 않는다.
+    """
+    if not todo_ids:
+        return {}, {}
+
+    # 순환 import 회피. 선언·피드는 todo 를 알지만 그 반대는 이 함수에서만이다.
+    from app.db.models.declaration import Declaration, DeclarationItem
+    from app.db.models.group import Group
+    from app.db.models.proof import Proof
+    from app.services.feed import proof_to_dict
+
+    rows = (
+        await db.execute(
+            select(DeclarationItem, Declaration, Group, Proof)
+            .join(Declaration, Declaration.declaration_id == DeclarationItem.declaration_id)
+            .join(Group, Group.group_id == Declaration.group_id)
+            .outerjoin(
+                Proof,
+                (Proof.declaration_item_id == DeclarationItem.declaration_item_id)
+                & (Proof.deleted_at.is_(None)),
+            )
+            .where(DeclarationItem.todo_id.in_(todo_ids))
+            .order_by(DeclarationItem.declaration_item_id)
+        )
+    ).all()
+
+    links: dict[int, list[dict[str, Any]]] = {}
+    proofs: dict[int, dict[str, Any]] = {}
+    for item, declaration, group, proof in rows:
+        todo_id = int(item.todo_id)
+        links.setdefault(todo_id, []).append(
+            {
+                "group_id": group.group_id,
+                "group_name": group.name,
+                "declaration_id": declaration.declaration_id,
+                "declaration_item_id": item.declaration_item_id,
+                "date": declaration.date.isoformat(),
+                "has_proof": proof is not None,
+            }
+        )
+        # 같은 사진이 여러 그룹에 붙으므로 아무거나 하나면 화면에는 충분하다.
+        if proof is not None and todo_id not in proofs:
+            proofs[todo_id] = proof_to_dict(proof)
+    return links, proofs
+
+
+async def serialize(db: AsyncSession, todo: Todo) -> dict[str, Any]:
+    """단건. 선언 링크를 한 번 더 읽지만 목록 경로가 아니라 부담이 없다."""
+    links, proofs = await declaration_links(db, [todo.todo_id])
+    return todo_to_dict(
+        todo,
+        declarations=links.get(todo.todo_id, []),
+        proof=proofs.get(todo.todo_id),
+    )
+
+
+async def serialize_many(db: AsyncSession, todos: list[Todo]) -> list[dict[str, Any]]:
+    links, proofs = await declaration_links(db, [t.todo_id for t in todos])
+    return [
+        todo_to_dict(
+            t,
+            declarations=links.get(t.todo_id, []),
+            proof=proofs.get(t.todo_id),
+        )
+        for t in todos
+    ]
 
 
 # ---- 생성·수정·삭제 --------------------------------------------------------------------
@@ -285,7 +365,7 @@ async def complete_todo(
         await recalc_day(db, user.user_id, todo.date)
 
     return {
-        "todo": todo_to_dict(todo),
+        "todo": await serialize(db, todo),
         "goal_progress": await goal_progress(db, todo.goal) if todo.goal else None,
         "personal_streak": await current_streak(db, user.user_id),
     }

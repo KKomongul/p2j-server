@@ -87,6 +87,25 @@ async def user(db: AsyncSession, clean_tables) -> User:
 
 
 @pytest.fixture
+def make_user(db: AsyncSession, clean_tables):
+    """그룹 테스트용 추가 계정 공장. (User, 인증 헤더) 를 준다."""
+
+    async def _make(nickname: str) -> tuple[User, dict[str, str]]:
+        row = User(
+            email=f"{nickname}@p2j.dev",
+            password_hash=hash_password("password123"),
+            nickname=nickname,
+        )
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+        token, _ = create_access_token(row.user_id)
+        return row, {"Authorization": f"Bearer {token}"}
+
+    return _make
+
+
+@pytest.fixture
 def access_token(user: User) -> str:
     token, _ = create_access_token(user.user_id)
     return token

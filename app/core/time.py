@@ -28,6 +28,16 @@ def now_utc() -> datetime:
     return datetime.now(UTC)
 
 
+def as_utc(value: datetime) -> datetime:
+    """DB 에서 읽은 시각을 aware UTC 로 맞춘다.
+
+    SQLite 는 timezone 정보를 잃고 naive 로 돌려준다(PostgreSQL 은 aware). 저장은 언제나
+    UTC 이므로 그대로 붙이면 된다. 저장된 시각을 `now_utc()` 와 비교하기 전에 반드시 거친다 —
+    빠뜨리면 테스트(SQLite)에서만 "can't compare offset-naive and offset-aware" 가 난다.
+    """
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
 def service_today(now: datetime | None = None, day_start_hour: int | None = None) -> date:
     """주어진 시각(기본 현재) 기준 "서비스상 오늘"."""
     instant = now or now_utc()

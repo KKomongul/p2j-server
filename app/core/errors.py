@@ -33,6 +33,9 @@ ERROR_CATALOG: dict[str, tuple[int, str]] = {
     "GOAL_NOT_FOUND": (404, "목표를 찾을 수 없어요."),
     "GROUP_NOT_FOUND": (404, "그룹을 찾을 수 없어요."),
     "DECLARATION_NOT_FOUND": (404, "선언을 찾을 수 없어요."),
+    "POST_NOT_FOUND": (404, "게시물을 찾을 수 없어요."),
+    "COMMENT_NOT_FOUND": (404, "댓글을 찾을 수 없어요."),
+    "LOAD_CHECK_NOT_FOUND": (404, "안내 기록을 찾을 수 없어요."),
     "USER_NOT_FOUND": (404, "사용자를 찾을 수 없어요."),
     # 405 (명세 외 — 라우터 기본 응답 형식 통일용)
     "METHOD_NOT_ALLOWED": (405, "지원하지 않는 요청이에요."),
@@ -49,6 +52,7 @@ ERROR_CATALOG: dict[str, tuple[int, str]] = {
     "DECLARED_TODO_LOCKED": (422, "그룹에 선언한 항목은 오늘 수정할 수 없어요."),
     "DECLARATION_CLOSED": (422, "선언 시간이 지났어요."),
     "DECLARATION_EMPTY": (422, "선언할 할 일을 하나 이상 골라 주세요."),
+    "PROOF_ALREADY_EXISTS": (422, "이미 인증한 항목이에요."),
     "GROUP_FULL": (422, "그룹 정원이 가득 찼어요."),
     "INVALID_INVITE_CODE": (422, "초대 코드를 다시 확인해 주세요."),
     "INVITE_CODE_EXPIRED": (422, "만료된 초대 코드예요."),

@@ -11,18 +11,24 @@ app/
 │  ├─ response.py              ok() · paged() · no_content() · encode/decode_cursor()
 │  ├─ security.py              bcrypt · access JWT(30분) · refresh 원문/해시 생성
 │  ├─ deps.py                  get_db · get_current_user (CurrentUser)
-│  └─ time.py                  service_today() 04:00 KST · to_kst_iso() · week_range()
+│  ├─ scheduler.py             매일 04:10 KST 배치 태스크 (asyncio, 의존성 없음)
+│  └─ time.py                  service_today() 04:00 KST · to_kst_iso() · week_range() · as_utc()
 ├─ db/
 │  ├─ base.py                  Base · naming_convention · BigIntPK · TimestampMixin
 │  ├─ session.py               async engine · sessionmaker (테스트에서 교체 가능)
 │  ├─ redis.py                 redis.asyncio 클라이언트
 │  └─ models/                  User · RefreshToken · Goal · Todo
+│                              UserDailyStat · LoadCheck
+│                              Group · GroupMember · GroupInvite
+│                              Declaration · DeclarationItem · Proof · Comment · Reaction
 ├─ schemas/
 │  ├─ user.py                  user_to_dict() · public_user_to_dict()
 │  ├─ auth.py                  Signup/Login/Refresh/Logout 요청
 │  ├─ goal.py                  Goal 요청 · goal_to_dict()
 │  ├─ todo.py                  Todo 요청(bulk 포함) · todo_to_dict() · summary_dict()
-│  └─ ai.py                    ParseRequest
+│  ├─ ai.py                    ParseRequest
+│  ├─ load_check.py            LoadCheckResponseRequest
+│  └─ social.py                Group/Join/Declaration/Proof/Presign/Comment/Reaction 요청
 ├─ api/v1/
 │  ├─ router.py
 │  └─ endpoints/
@@ -30,13 +36,28 @@ app/
 │     ├─ auth.py               signup · login · refresh · logout · me
 │     ├─ goals.py              목록(커서) · 생성 · 상세 · 수정 · archive · 삭제
 │     ├─ todos.py              목록 · week · CRUD · bulk · complete · uncomplete · postpone
-│     └─ ai.py                 parse · quota
+│     ├─ ai.py                 parse · quota · load-check · load-check 응답
+│     ├─ stats.py              summary · goals/{id}
+│     ├─ groups.py             그룹 CRUD · 초대 · 선언 · 인증샷 · 피드 · 랭킹 · 스트릭
+│     ├─ posts.py              게시물 · 댓글 · 리액션
+│     └─ uploads.py            presign
 └─ services/
    ├─ auth.py                  signup · login · issue_session · rotate_refresh_token · revoke_*
    ├─ goals.py                 goal_progress · 팔레트 · end_date 계산 · 커서 목록
    ├─ todos.py                 TODO 규칙 (선언 잠금 · 날짜 범위 · 미루기 · bulk 롤백)
    ├─ ai_parse.py              /ai/parse 조립 (목표 힌트 · 쿼터 · 파이프라인)
-   └─ ai/                      schemas · llm (GPT-4o-mini 구조화 출력) · rules · pipeline · quota
+   ├─ ai/                      schemas · llm (GPT-4o-mini 구조화 출력) · rules · pipeline · quota
+   ├─ stats.py                 recalc_day (집계 즉시 반영) · 연속 기록 · summary · goal_stats
+   ├─ load_check.py            계획량 안내 판정 (집계 기반, LLM 미사용) · 하루 1회 캐시
+   ├─ groups.py                정원·초대코드·탈퇴·구성원 현황
+   ├─ declarations.py          선언 생성(즉시 잠금) · 그날 현황 · 항목 상태 판정
+   ├─ feed.py                  인증샷 · 사용자별 피드(미달성 포함) · 커서
+   ├─ posts.py                 댓글 · 리액션(1인 1개 UPSERT)
+   ├─ ranking.py               기간별 순위 · 그룹 스트릭 판정
+   ├─ uploads.py               presign (자격증명 없으면 503 STORAGE_UNAVAILABLE)
+   └─ batch.py                 04:10 잡 3종 (집계 마감 · 그룹 스트릭 · 토큰 정리)
+
+app/jobs.py                    배치 수동 실행 (`python -m app.jobs [--date YYYY-MM-DD]`)
 ```
 
 ## 앞으로 만들 것
@@ -49,15 +70,12 @@ app/api/v1/endpoints/          app/services/              app/db/models/
 ├─ users.py                    ├─ users.py
 ├─ todos.py (+reorder P1)                                 ├─ ai_parse.py (정확도 로그)
 ├─ ai.py (+transcribe P1)      ├─ ai/ (Colab 검증 코드로 rules.py 교체)
-├─ declarations.py             ├─ declarations.py         ├─ declaration.py (+items)
-├─ groups.py                   ├─ groups.py               ├─ group.py (+members, invites)
-│                              ├─ feed.py                 ├─ feed_item.py (+reactions)
-│                              ├─ storage.py (Firebase)   ├─ proof.py
-├─ stats.py                    ├─ stats.py                ├─ user_daily_stats.py
 └─ devices.py (P1)                                        └─ device.py (P1)
-
-app/workers/daily.py           04:00 KST 배치 (stats 확정 · streak · 증거 만료)
 ```
+
+`uploads.py` 의 presign 은 골격만 있고 **Firebase 자격증명이 없으면 503** 이다.
+`FIREBASE_CREDENTIALS_PATH` · `FIREBASE_STORAGE_BUCKET` 을 채우면 그때 살아난다.
+인증샷 기능 자체는 `file_key` 만 받으므로 그 전에도 끝까지 동작한다.
 
 모듈 이름은 `02-api-v1.md` 의 섹션 구분을 그대로 따른다.
 모바일의 feature 폴더(`auth` / `todo` / `goal`)와도 이름이 맞아, 회의할 때 서로 헷갈리지 않는다.

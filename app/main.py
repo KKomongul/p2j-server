@@ -26,6 +26,8 @@ from app.core.errors import (
     pydantic_error_to_message,
     pydantic_loc_to_field,
 )
+from app.core.scheduler import start as start_scheduler
+from app.core.scheduler import stop as stop_scheduler
 from app.db.redis import close_redis
 from app.db.session import dispose_engine
 
@@ -39,7 +41,9 @@ logger = logging.getLogger("p2j")
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     logger.info("P2J 서버 시작 (env=%s, port=%s)", settings.app_env, settings.port)
+    start_scheduler()  # 매일 04:10 KST 배치 (§5.9). 테스트·BATCH_ENABLED=false 면 뜨지 않는다.
     yield
+    await stop_scheduler()
     await dispose_engine()
     await close_redis()
 

@@ -33,6 +33,7 @@ from app.schemas.todo import (
     todo_to_dict,
 )
 from app.services.goals import goal_progress
+from app.services.stats import current_streak, recalc_day, recalc_days
 
 DATE_PAST_LIMIT_DAYS = 30
 DATE_FUTURE_LIMIT_DAYS = 365
@@ -64,9 +65,16 @@ async def list_day(db: AsyncSession, user: User, day: date | None) -> dict[str, 
         "date": target.isoformat(),
         "items": [todo_to_dict(t) for t in todos],
         "summary": summary_dict(todos),
-        # 12주차 선언 구현 전까지 null. 모바일은 없어도 파싱이 깨지지 않는다 (§5).
-        "declaration": None,
+        # 그날 내가 어느 그룹에 뭘 선언했는지. 선언이 없으면 null (§6.2).
+        "declaration": await declaration_summary(db, user, target),
     }
+
+
+async def declaration_summary(db: AsyncSession, user: User, day: date) -> dict[str, Any] | None:
+    # 선언 기능이 todos 를 import 하지 않도록 호출 시점에 가져온다.
+    from app.services.declarations import day_summary
+
+    return await day_summary(db, user, day)
 
 
 async def week_strip(db: AsyncSession, user: User, start: date | None) -> list[dict[str, Any]]:
@@ -158,6 +166,7 @@ async def create_todo(db: AsyncSession, user: User, body: TodoCreateRequest) -> 
     db.add(todo)
     await db.flush()
     await db.refresh(todo)
+    await recalc_day(db, user.user_id, day)
     return todo
 
 
@@ -206,6 +215,7 @@ async def create_bulk(db: AsyncSession, user: User, body: TodoBulkRequest) -> li
     await db.flush()
     for t in todos:
         await db.refresh(t)
+    await recalc_days(db, user.user_id, *{t.date for t in todos})
     return todos
 
 
@@ -215,6 +225,7 @@ LOCKED_FIELDS = {"title", "date", "goal_id"}
 async def update_todo(db: AsyncSession, user: User, todo_id: int, body: TodoUpdateRequest) -> Todo:
     todo = await get_owned_todo(db, user, todo_id)
     changed = body.model_fields_set
+    previous_date = todo.date  # 날짜가 바뀌면 양쪽 날의 집계를 다시 계산한다
 
     if todo.is_declared and changed & LOCKED_FIELDS:
         raise DeclaredTodoLocked()
@@ -243,6 +254,7 @@ async def update_todo(db: AsyncSession, user: User, todo_id: int, body: TodoUpda
 
     await db.flush()
     await db.refresh(todo)
+    await recalc_days(db, user.user_id, previous_date, todo.date)
     return todo
 
 
@@ -252,6 +264,7 @@ async def delete_todo(db: AsyncSession, user: User, todo_id: int) -> None:
         raise DeclaredTodoLocked()
     todo.deleted_at = now_utc()
     await db.flush()
+    await recalc_day(db, user.user_id, todo.date)
 
 
 # ---- 상태 -------------------------------------------------------------------------
@@ -267,12 +280,14 @@ async def complete_todo(
         todo.actual_minutes = body.actual_minutes or todo.estimated_minutes
         await db.flush()
         await db.refresh(todo)
+        # 집계와 연속 기록을 같은 트랜잭션에서 갱신한다. 여기를 빠뜨리면
+        # 통계·랭킹·계획량 안내가 전부 어긋난다 (04-backend-v1 §5.3).
+        await recalc_day(db, user.user_id, todo.date)
 
     return {
         "todo": todo_to_dict(todo),
         "goal_progress": await goal_progress(db, todo.goal) if todo.goal else None,
-        # 선언 기능(12주차) 전에는 연속 기록을 계산할 근거가 없다.
-        "personal_streak": 0,
+        "personal_streak": await current_streak(db, user.user_id),
     }
 
 
@@ -282,6 +297,7 @@ async def uncomplete_todo(db: AsyncSession, user: User, todo_id: int) -> None:
     todo.completed_at = None
     todo.actual_minutes = None
     await db.flush()
+    await recalc_day(db, user.user_id, todo.date)
 
 
 async def postpone_todo(
@@ -295,6 +311,7 @@ async def postpone_todo(
         raise FieldValidationError({"to_date": "지금 날짜보다 뒤로만 미룰 수 있어요."})
     _check_date_range(target, service_today())
 
+    previous_date = todo.date
     todo.display_order = await _next_order(db, user, target)  # 날짜 변경 전에 (autoflush)
     todo.date = target
     todo.postpone_count += 1
@@ -302,4 +319,5 @@ async def postpone_todo(
     todo.declared_at = None
     await db.flush()
     await db.refresh(todo)
+    await recalc_days(db, user.user_id, previous_date, target)
     return todo

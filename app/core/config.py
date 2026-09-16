@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     # 하루 경계 시각. 4 = 매일 04:00 KST 에 날짜가 넘어간다 (BR-01).
     service_day_start_hour: int = Field(default=4, ge=0, le=23)
 
+    # --- 배치 (04-backend-v1 §5.9) ---
+    # 하루가 04:00 에 바뀌므로 그 직후에 전일을 판정한다. 시각은 KST 기준.
+    # 인스턴스를 여러 개로 늘리면 잡이 중복 실행된다. 그때는 false 로 끄고 외부 cron 을 쓴다.
+    batch_enabled: bool = True
+    batch_hour: int = Field(default=4, ge=0, le=23)
+    batch_minute: int = Field(default=10, ge=0, le=59)
+
     # --- CORS ---
     # 운영에서 허용할 origin 을 콤마로 구분. 개발·테스트에서는 항상 열려 있다.
     cors_origins: str = ""

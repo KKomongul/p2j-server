@@ -113,6 +113,32 @@ curl http://localhost:8000/v1/health
 
 정리: `docker compose down` (**`-v` 를 붙이지 않는다.** 개발 데이터가 날아간다.)
 
+### Docker 없이 띄우기 (SQLite)
+
+Docker 를 아직 못 깔았거나 잠깐 확인만 하려는 경우. **DB 를 SQLite 파일 하나로 바꾼다.**
+
+```bash
+# Windows PowerShell
+$env:DATABASE_URL = "sqlite+aiosqlite:///./dev.db"
+uv run alembic upgrade head
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+```bash
+# macOS / Linux / Git Bash
+DATABASE_URL="sqlite+aiosqlite:///./dev.db" uv run alembic upgrade head
+DATABASE_URL="sqlite+aiosqlite:///./dev.db" uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+`.env` 의 `DATABASE_URL` 을 같은 값으로 바꿔도 된다. `dev.db` 는 `.gitignore` 에 있다.
+
+알아 둘 것:
+
+- `/v1/health` 가 **503** 을 준다. Redis 가 없어서다. **API 는 전부 정상 동작한다** —
+  Redis 는 AI 호출 횟수 세기에만 쓰고, 없으면 제한 없이 통과시킨다.
+- 마이그레이션은 SQLite 에서도 그대로 돈다. PostgreSQL 출력은 달라지지 않는다.
+- 팀에 공유하는 개발 데이터는 PostgreSQL 쪽에만 쌓인다. 둘은 별개 DB 다.
+
 ---
 
 ## 3. 모바일 앱과 연결하기

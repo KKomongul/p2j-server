@@ -48,7 +48,11 @@ async def test_parse_none_method_returns_raw_text(
 async def test_parse_uses_llm_when_available(
     client: AsyncClient, auth_headers, monkeypatch
 ) -> None:
-    async def fake_llm(text: str, ref: date, goals: list[GoalHint]) -> ParseResult:
+    async def fake_llm(
+        text: str, ref: date, goals: list[GoalHint], *, rule_result: ParseResult
+    ) -> ParseResult:
+        assert rule_result.method == "rules"
+        assert rule_result.drafts[0].title == text
         return ParseResult(drafts=[Draft(title="LLM 결과", date=ref, confidence=0.9)], method="llm")
 
     monkeypatch.setattr(llm, "parse", fake_llm)
@@ -60,7 +64,9 @@ async def test_parse_uses_llm_when_available(
 async def test_parse_llm_timeout_falls_back(client: AsyncClient, auth_headers, monkeypatch) -> None:
     import asyncio
 
-    async def slow_llm(text: str, ref: date, goals: list[GoalHint]) -> ParseResult:
+    async def slow_llm(
+        text: str, ref: date, goals: list[GoalHint], *, rule_result: ParseResult
+    ) -> ParseResult:
         await asyncio.sleep(5)
         raise AssertionError("도달하면 안 됨")
 

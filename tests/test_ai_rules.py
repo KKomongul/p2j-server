@@ -53,3 +53,20 @@ def test_goal_match_fills_estimated_minutes() -> None:
 def test_empty_after_split_yields_no_drafts() -> None:
     r = rules.parse("   ,  ,  ", REF, [])
     assert r.drafts == []
+
+
+def test_compound_duration_and_title_preservation() -> None:
+    result = rules.parse("오늘 1시간 30분 요가, 내일 두 시간 반 독서", REF, [])
+    assert [(d.title, d.estimated_minutes) for d in result.drafts] == [("요가", 90), ("독서", 150)]
+    assert rules.parse("내일 종이 접기", REF, []).drafts[0].title == "종이 접기"
+    assert rules.extract_minutes("0시간 스트레칭")[0] == 1
+    assert rules.extract_minutes("다섯 시간 공부")[0] == 300
+
+
+def test_ambiguous_dates_do_not_crash_pipeline() -> None:
+    result = rules.parse("2월 29일 운동", date(2024, 3, 1), [])
+    assert result.drafts[0].date == date(2024, 3, 1)
+    assert "date_ambiguous" in result.warnings
+    result = rules.parse("999999999999999999일 뒤 운동", REF, [])
+    assert result.drafts[0].date == REF
+    assert "date_ambiguous" in result.warnings

@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     storage_dir: str = "var/uploads"
 
     # --- 외부 서비스 (해당 기능 구현 시 필수로 승격) ---
+    gemini_api_key: str = Field(default="", repr=False)
+    gemini_model: str = Field(default="gemini-2.5-flash-lite", pattern=r"^gemini-[a-zA-Z0-9.-]+$")
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     firebase_credentials_path: str = ""

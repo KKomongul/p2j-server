@@ -32,7 +32,7 @@
 - **목표 API** `/v1/goals` 목록(status 필터·커서) · 생성 · 상세 · 수정 · `archive` · 삭제 (§4). `progress` 는 요청 시 계산
 - **TODO API** `/v1/todos` 하루 목록+summary · `week` · 생성 · `bulk` · 상세 · 수정 · 삭제 · `complete` · `uncomplete` · `postpone` (§5)
   선언 잠금(`DECLARED_TODO_LOCKED`), 미루기 횟수, 목표 조인(`goal_title`), 완료 시 `goal_progress` 계산까지
-- **AI 입력** `/v1/ai/parse` 3단계 폴백(LLM → 규칙 파서 → 원문) + `/v1/ai/quota` (§6). LLM 은 `OPENAI_API_KEY` 가 있을 때만, 없으면 규칙 파서로
+- **AI 입력** `/v1/ai/parse` 규칙 초안 생성 → Gemini 검수(실패 시 초안 유지) + `/v1/ai/quota` (§6). 검수는 `GEMINI_API_KEY` 가 있을 때만, 없으면 규칙 초안 반환
 - `GET /v1/health` — PostgreSQL `SELECT 1` 과 Redis `PING` 을 실제로 확인. 하나라도 죽으면 503
 - SQLAlchemy 모델 `users`, `refresh_tokens`, `goals`, `todos` + Alembic 마이그레이션 2건
 - 04:00 KST 하루 경계 유틸(`app/core/time.py`)과 테스트
@@ -257,7 +257,7 @@ p2j-server/
 | [`docs/decisions/0003-fastapi.md`](docs/decisions/0003-fastapi.md) | **NestJS → FastAPI 전환** 결정과 대응표 |
 | [`docs/architecture/module-map.md`](docs/architecture/module-map.md) | 지금 있는 모듈과 앞으로 만들 모듈 |
 | [`docs/database/migration-policy.md`](docs/database/migration-policy.md) | 마이그레이션 규칙 (Alembic) |
-| [`docs/ai/README.md`](docs/ai/README.md) | AI 3단계 폴백과 운영 규칙 |
+| [`docs/ai/README.md`](docs/ai/README.md) | 규칙 초안·Gemini 검수와 운영 규칙 |
 | [`docs/decisions/pending-decisions.md`](docs/decisions/pending-decisions.md) | **미결 사항** — 2주차 회의 안건 |
 | [`docs/OWNERSHIP.md`](docs/OWNERSHIP.md) | 담당 영역과 공동 리뷰 대상 |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | 브랜치 · 커밋 · PR 규칙 |

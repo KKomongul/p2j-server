@@ -1,9 +1,6 @@
-"""3단계 폴백 오케스트레이션 (§6.1).
+"""규칙 초안 생성 → Gemini 검수 → 사용자 확인용 결과.
 
-1) LLM (8초 타임아웃)  → method="llm"
-2) 규칙 파서            → method="rules"
-3) 원문 1건             → method="none"  (클라이언트는 직접 입력 폼으로 전환)
-어느 경우든 200 이다. 규칙 파서 자체가 예외로 죽을 때만 503 AI_UNAVAILABLE.
+키 없음·검수 실패·쿼터 초과 시 규칙 초안을 유지한다.
 """
 
 from __future__ import annotations
@@ -23,25 +20,26 @@ logger = logging.getLogger("p2j.ai")
 async def parse(
     text: str, ref_date: date, goals: list[GoalHint], *, allow_llm: bool = True
 ) -> ParseResult:
-    if allow_llm:
-        try:
-            async with asyncio.timeout(LLM_TIMEOUT_SECONDS):
-                return await llm.parse(text, ref_date, goals)
-        except (TimeoutError, llm.LLMUnavailable) as exc:
-            # 원문은 남기지 않는다. 사유만.
-            logger.info("LLM 단계 실패, 규칙 파서로 폴백: %s", exc)
-
     try:
         result = rules.parse(text, ref_date, goals)
     except Exception as exc:
         logger.exception("규칙 파서 예외")
         raise AppError("AI_UNAVAILABLE") from exc
 
-    if result.drafts:
-        return result
+    if not result.drafts:
+        result = ParseResult(
+            drafts=[Draft(title=text.strip()[:100], date=ref_date, confidence=0.0)],
+            method="none",
+            warnings=result.warnings,
+        )
 
-    return ParseResult(
-        drafts=[Draft(title=text.strip()[:100], date=ref_date, confidence=0.0)],
-        method="none",
-        warnings=result.warnings,
-    )
+    if allow_llm:
+        try:
+            async with asyncio.timeout(LLM_TIMEOUT_SECONDS):
+                reviewed = await llm.parse(text, ref_date, goals, rule_result=result)
+                return reviewed
+        except (TimeoutError, llm.LLMUnavailable) as exc:
+            # 원문·응답·키는 기록하지 않는다.
+            logger.info("Gemini 검수 실패, 규칙 초안 유지: %s", type(exc).__name__)
+
+    return result

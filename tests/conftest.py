@@ -17,6 +17,8 @@ from sqlalchemy.pool import StaticPool
 
 # 앱 import 전에 환경을 고정한다. .env 가 있어도 테스트 값이 이긴다.
 os.environ["APP_ENV"] = "test"
+# 실제 키가 .env에 있어도 테스트에서 외부 AI를 호출하지 않는다.
+os.environ["GEMINI_API_KEY"] = ""
 os.environ["JWT_SECRET"] = "test-secret-test-secret-test-secret-32b"
 os.environ["SERVICE_DAY_START_HOUR"] = "4"
 

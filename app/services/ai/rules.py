@@ -29,8 +29,10 @@ _RELATIVE = re.compile(r"(오늘|내일|모레|글피)")
 _WEEKDAY = re.compile(r"(이번\s*주|다음\s*주|담주|이번주|다음주)?\s*([월화수목금토일])요일")
 _DAYS_LATER = re.compile(r"(\d+)\s*일\s*(뒤|후)")
 _MONTH_DAY = re.compile(r"(\d{1,2})\s*월\s*(\d{1,2})\s*일")
-_MINUTES = re.compile(r"(\d+)\s*분")
-_HOURS = re.compile(r"(\d+|한|두|세|네)\s*시간\s*(반)?")
+_MINUTES = re.compile(r"(\d+)\s*분(?:간)?")
+_HOURS = re.compile(
+    r"(\d+|한|두|세|네|다섯|여섯|일곱|여덟|아홉|열)\s*시간\s*(?:(반)|(\d+)\s*분)?(?:간)?"
+)
 _TIME_HINTS: list[tuple[re.Pattern[str], TimeHint]] = [
     (re.compile(r"아침|오전|새벽"), "morning"),
     (re.compile(r"점심|오후|낮"), "afternoon"),
@@ -67,13 +69,19 @@ def extract_date(sentence: str, ref: date) -> tuple[date | None, str, list[str]]
         except ValueError:
             return None, sentence, ["date_ambiguous"]
         if target < ref:
-            target = date(ref.year + 1, month, day)  # 지난 날짜면 내년으로 본다
+            try:
+                target = date(ref.year + 1, month, day)
+            except ValueError:  # e.g. February 29 followed by a non-leap year
+                return None, sentence, ["date_ambiguous"]
             warnings.append("date_ambiguous")
         return target, _strip(sentence, m), warnings
 
     m = _DAYS_LATER.search(sentence)
     if m:
-        return ref + timedelta(days=int(m.group(1))), _strip(sentence, m), warnings
+        offset = int(m.group(1))
+        if offset > 365:
+            return None, sentence, ["date_ambiguous"]
+        return ref + timedelta(days=offset), _strip(sentence, m), warnings
 
     m = _WEEKDAY.search(sentence)
     if m:
@@ -112,8 +120,8 @@ def extract_minutes(sentence: str) -> tuple[int | None, str]:
         raw = m.group(1)
         hours = KOREAN_NUMBERS.get(raw, None) if not raw.isdigit() else int(raw)
         if hours is not None:
-            minutes = hours * 60 + (30 if m.group(2) else 0)
-            return min(minutes, 1440), _strip(sentence, m)
+            minutes = hours * 60 + (30 if m.group(2) else int(m.group(3) or 0))
+            return max(1, min(minutes, 1440)), _strip(sentence, m)
     m = _MINUTES.search(sentence)
     if m:
         return max(1, min(int(m.group(1)), 1440)), _strip(sentence, m)
@@ -132,10 +140,10 @@ def match_goal(sentence: str, goals: list[GoalHint]) -> GoalHint | None:
 
 
 def _strip(sentence: str, m: re.Match[str]) -> str:
-    cleaned = (sentence[: m.start()] + " " + sentence[m.end() :]).strip()
-    cleaned = re.sub(r"\s{2,}", " ", cleaned)
-    cleaned = _LEADING.sub("", cleaned)
-    return _TRAILING.sub("", cleaned).strip() or sentence
+    # Remove a particle only immediately after the extracted date/time expression.
+    # Stripping title endings corrupts words such as "요가" and "종이".
+    suffix = re.sub(r"^(?:에|은|는|도|을|를)(?=\s|$)", "", sentence[m.end() :])
+    return re.sub(r"\s{2,}", " ", sentence[: m.start()] + " " + suffix).strip()
 
 
 def parse(text: str, ref_date: date, goals: list[GoalHint]) -> ParseResult:
